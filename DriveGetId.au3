@@ -1,6 +1,9 @@
 #NoTrayIcon
 
 #include <WinAPIFiles.au3>
+#include <File.au3>
+#include <WinAPIShPath.au3>
+
 
 Local $sDrive, $tDrive, $aData
 Switch $CmdLine[0]
@@ -10,8 +13,8 @@ Switch $CmdLine[0]
 ;	$sDrive = (StringRight($tDrive, 1) == "\") ? ($tDrive) : ($tDrive & "\")
   Case Else
     MsgBox(4096, "Parameters Error", 'DrivegetId "Drv4SN "E:|GUID" | Drv4FS "E:|GUID" | Drv2Label "E:|GUID" | Label2Drv "Temp" | DRV2DEVICE E: | DRV2GUID E:' _
-		& @CRLF & 'GUID2Drv "GUID" | DRV2UUID "E:|GUID" | UUID2DRV UUID | UUID2GUID UUID | DRV2NUM "E:|GUID"| LASTDRV "OXYZ" | GETVOLUMES ";" | GUID2NUM "GUID" ' _
-		& @CRLF & 'GUID2DEVICE "GUID" | NUM2GUID "1.1|hd0,0|hd0,msdos1" | GETBOOTID "BOOT|WIM|SYSTEM" >tmp.bat|txt)' )
+	& @CRLF & 'GUID2Drv "GUID" | DRV2UUID "E:|GUID" | UUID2DRV UUID | UUID2GUID UUID | DRV2NUM "E:|GUID"| LASTDRV "OXYZ" | GETVOLUMES ";" | GUID2NUM "GUID" ' _
+	& @CRLF & 'GUID2DEVICE "GUID" | NUM2GUID "1.1|hd0,0|hd0,msdos1" | GETBOOTID "BOOT|SYSTEM" | SEARCHFILE "FilePath(?\test\tmp.txt)" >tmp.bat|txt)' )
     Exit(1)
 EndSwitch
 
@@ -73,13 +76,15 @@ Switch StringUpper($CmdLine[1])
     EndIf
 
   Case "GUID2DRV"
-  	Local $tDrive = StringRegExpReplace($sDrive, "(\\+)$", "", 1) & "\"
-	ConsoleWrite(StringUpper(StringLeft(_GetVolumePathNamesForVolumeName($tDrive), 2)))
+  	_QualifyRootFromPath($sDrive) ; ByRef
+	ConsoleWrite(StringUpper(StringLeft($sDrive, 2) ) )
 
   Case "GUID2DEVICE"
+  	_QualifyRootFromPath($sDrive) ; ByRef
 	ConsoleWrite(_Drv2Device($sDrive) )
 
   Case "GUID2NUM"
+  	_QualifyRootFromPath($sDrive) ; ByRef
 	Local $Style = _GetDrivePartitionStyle($sDrive)
 	Local $aData = _DrvGetDriveNumber($sDrive)
 	Local $disk = $aData[1]
@@ -108,7 +113,7 @@ Switch StringUpper($CmdLine[1])
 
 	While 1
 		$ndVolume = _FindNextVolume($Handle, $ReturnVaules)
-		If $ndVolume = 0 Then ExitLoop
+		If @error or $ndVolume = 0 Then ExitLoop
 		If _GetUUIDfromDrv($ReturnVaules) = $tDrive Then ExitLoop
 	WEnd
 
@@ -128,34 +133,16 @@ Switch StringUpper($CmdLine[1])
 	getAllVolumes($sDrive)
 
   Case "LASTDRV"
-	ConsoleWrite(FindLastDrv($sDrive) & ":")
+	ConsoleWrite(FindLastDrv($sDrive))
+
+  Case "SEARCHFILE"
+	Local $tsDrive = "", $sDir = "", $sFileName = "", $sExtension = ""
+	Local $aPathSplit = _PathSplit($sDrive, $tsDrive, $sDir, $sFileName, $sExtension)
+	$tsDrive = SearchFileWithAll($tsDrive, $sDir, $sFileName & $sExtension)
+	If Not @error Then ConsoleWrite($tsDrive)
 
   Case "GETBOOTID"
-	Local $BootDevice , $tDrive = StringUpper($sDrive)
-	If StringInStr($tDrive, "SYSTEM") Then
-		$BootDevice = RegRead("HKLM\System\Setup", "SystemPartition")
-		ConsoleWrite($BootDevice)
-		Exit(0)
-	EndIf
-
-	If StringInStr($tDrive, "BOOT") Then
-		Local $pattern = ""
-		$BootDevice = RegRead("HKLM\System\CurrentControlSet\Control", "FirmwareBootDevice")
-		If StringInStr($BootDevice, "multi") Then
-			$pattern = "multi\([[:digit:]]{1,2}\)disk\(0\)rdisk\(([[:digit:]]{1,2})\)partition\(([[:digit:]])\)"
-		Else
-			$pattern = "scsi\([[:digit:]]{1,2}\)disk\(([[:digit:]]{1,2})\)rdisk\(0\)partition\(([[:digit:]])\)"
-		EndIf
-
-		$aData = StringRegExp($BootDevice, $pattern, 1, 1)
-		If Not IsArray($aData) Then Exit(1)
-		ConsoleWrite(getVolumeFromNum($aData[0], $aData[1]))
-	EndIf
-
-	If StringInStr($tDrive, "WIM") Then
-		$BootDevice = RegRead("HKLM\System\CurrentControlSet\Control", "PEBootRamdiskSourceDrive")
-		ConsoleWrite($BootDevice)
-	EndIf
+	ConsoleWrite(SearchBootDrv($sDrive) )
 
   Case Else
 		MsgBox(4096, "Parameters Error", $CmdLine[1] & @TAB & $CmdLine[2] & @TAB, 8)
@@ -163,95 +150,6 @@ Switch StringUpper($CmdLine[1])
 EndSwitch
 
 Exit(0)
-
-
-Func _Drv2Device($sDrive)
-	Local $tDrive = StringRegExpReplace($sDrive, "(\\+)$", "", 1) & "\"
-	If Not StringInStr($tDrive, "\\?\Volume") Then Return _WinAPI_QueryDosDevice($sDrive)
-	Local $lastL = "B:", $detect = false
-	Local $aDrive = _GetVolumePathNamesForVolumeName($tDrive)
-	If @error Then
-		$detect = true
-		If FileExists("B:") Then $lastL = FindLastDrv("CDEFGIXYZ") & ":"
-		_WinAPI_SetVolumeMountPoint($lastL & "\", $tDrive)
-	Else
-		$lastL = StringLeft($aDrive, 2)
-	Endif
-	Local $lastDrv = _WinAPI_QueryDosDevice($lastL)
-;	Local $aCall = DllCall('kernel32.dll', 'dword', 'QueryDosDeviceW', 'wstr', null, 'struct*', $tData, 'dword', 32768)
-	If ($detect) Then _WinAPI_DeleteVolumeMountPoint($lastL & "\")
-	Return $lastDrv
-EndFunc ; End =>_Drv2Device
-
-
-Func RunProgram($Program, $Command)
-	Local $sFilePath = StringRegExpReplace(@ScriptDir, "[\\/]+\z", "") & "\" & $Program
-  	If Not FileExists($sFilePath) Then
-		MsgBox(4096, "Error", "File not Found: " & $sFilePath)
-		Exit(1)
-	EndIf
-	Local $pid = Run($sFilePath & " " & $Command, "", @SW_HIDE, 2)
-	ProcessWaitClose($pid)
-	Local $sOutput = StdoutRead($pid)
-	If @error Then Return ""
-	Return $sOutput
-EndFunc
-
-
-Func FindLastDrv($Extra)
-	Local $lastL= ""
-	Local $BitMask = _WinAPI_GetLogicalDrives()
-	Local $iExtra = StringToASCIIArray($Extra)
-	For $Bits In $iExtra
-		$BitMask = BitOR($BitMask,2^($Bits - 65) )
-	Next
-
-	For $i = 2 To 25
-		If Not BitAND(2^$i, $BitMask) Then
-			$lastL = Chr($i + 65)
-			ExitLoop
-		EndIf
-	Next
-	Return $lastL
-EndFunc
-
-
-Func _GetVolumePathNamesForVolumeName($sVolumeName)
-	Local $tData, $pBuffer, $pSize, $Drive = ""
-	$tData = DllStructCreate("dword size;wchar buffer[256]")
-	$pBuffer = DllStructGetPtr($tData, "buffer")
-	$pSize = DllStructGetPtr($tData, "size")
-	$aCall = DllCall("kernel32.dll", "int", "GetVolumePathNamesForVolumeNameW", "wstr", $sVolumeName, "ptr", $pBuffer, "dword", 256, "ptr", $pSize)
-	$Drive = DllStructGetData($tData, "buffer")
-	If @error Then Return SetError(1)
-	If StringIsSpace(StringStripWS($Drive, 3)) Then Return SetError(1)
-	Return $Drive
-EndFunc
-
-
-Func getVolumeFromNum($disk, $partition)
-	Local $ReturnVaules, $ndVolume = 0
-	Local $tVolume = _FindFirstVolume($ReturnVaules)
-	Local $Handle = $tVolume[0]
-	$aData = _DrvGetDriveNumber($ReturnVaules)
-	If IsArray($aData) Then
-		If ($disk = $aData[1]) And ($Partition = $aData[2]) Then
-			_FindVolumeClose($Handle)
-			Return $ReturnVaules
-		EndIf
-	EndIf
-
-	While 1
-		$ndVolume = _FindNextVolume($Handle, $ReturnVaules)
-		If $ndVolume = 0 Then ExitLoop
-		$aData = _DrvGetDriveNumber($ReturnVaules)
-		If IsArray($aData) Then
-			If ($disk = $aData[1]) And ($Partition = $aData[2]) Then ExitLoop
-		EndIf
-	WEnd
-	_FindVolumeClose($Handle)
-	Return $ReturnVaules
-EndFunc
 
 
 Func getAllVolumes($delims = ";")
@@ -274,6 +172,7 @@ Func getAllVolumes($delims = ";")
 			chr(34) & $ReturnVaules & chr(34) & $delims & _
 			chr(34) & DriveGetLabel($ReturnVaules) & chr(34) & $delims & _
 			chr(34) & _Drv2Device($ReturnVaules) & chr(34) & $delims & _
+			chr(34) & DriveGetSerial($ReturnVaules) & chr(34) & $delims & _
 			chr(34) & DriveGetFileSystem($ReturnVaules) & chr(34) & $delims & _
  			chr(34) & DriveGetType($ReturnVaules) & chr(34) & $delims & _
 			Floor(DriveSpaceTotal($ReturnVaules)) & $delims & Floor(DriveSpaceFree($ReturnVaules)) )
@@ -282,7 +181,7 @@ Func getAllVolumes($delims = ";")
 	While 1
 		$uuid1 = ""
 		$ndVolume = _FindNextVolume($Handle, $ReturnVaules)
-		If $ndVolume = 0 Then ExitLoop
+		If @error or $ndVolume = 0 Then ExitLoop		
 		$aData = _DrvGetDriveNumber($ReturnVaules)
 		If IsArray($aData) Then
 			Local $Style = _GetDrivePartitionStyle($ReturnVaules)
@@ -299,6 +198,7 @@ Func getAllVolumes($delims = ";")
 			chr(34) & $ReturnVaules & chr(34) & $delims & _
 			chr(34) & DriveGetLabel($ReturnVaules) & chr(34) & $delims & _
 			chr(34) & _Drv2Device($ReturnVaules) & chr(34) & $delims & _
+			chr(34) & DriveGetSerial($ReturnVaules) & chr(34) & $delims & _
 			chr(34) & DriveGetFileSystem($ReturnVaules) & chr(34) & $delims & _
  			chr(34) & DriveGetType($ReturnVaules) & chr(34) & $delims & _
 			Floor(DriveSpaceTotal($ReturnVaules)) & $delims & Floor(DriveSpaceFree($ReturnVaules)) )
@@ -308,11 +208,252 @@ Func getAllVolumes($delims = ";")
 EndFunc
 
 
+Func _GetDrvFromUUID($uuid)
+	Local $ReturnVaules, $ndVolume = 0
+	Local $tVolume = _FindFirstVolume($ReturnVaules)
+	Local $Handle = $tVolume[0]
+	If Not @error Then
+		If $uuid = _GetUUIDfromDrv($ReturnVaules) Then
+			_FindVolumeClose($Handle)
+			 Return $ReturnVaules
+		EndIf
+	EndIf
+
+	While 1
+		$ndVolume = _FindNextVolume($Handle, $ReturnVaules)
+		If @error or $ndVolume = 0 Then ExitLoop
+		If Not @error Then
+			If $uuid = _GetUUIDfromDrv($ReturnVaules) Then ExitLoop
+		EndIf
+	WEnd
+	_FindVolumeClose($Handle)
+	 Return SetError(0, 0, $ReturnVaules)
+EndFunc ; End =>_GetDrvFromUUID
+
+
+Func _GetUUIDfromDrv($tDrive)
+	Local $hfile, $nfile
+	Local $sDrive = StringRegExpReplace($tDrive, "(\\+)$", "", 1)
+	If 	StringRegExp($sDrive, "\\\\\?\\Volume\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}") Then
+		$nfile = $sDrive
+	ElseIf StringRegExp(StringUpper($sDrive), "[C-Z]\:$") Then
+		$nfile = "\\.\" & $sDrive
+	Else
+		Return SetError(1, 0, "")
+	EndIf
+	If StringInStr(DriveGetFileSystem($nfile & "\"), "FAT") Then Return Hex(DriveGetSerial($nfile & "\") & @CRLF)
+	$hfile = FileOpen($nfile, 16)
+	Local $filescont = FileRead($hfile, 84); 84 bytes is enough
+;	 ConsoleWrite(_HexEncode($filescont) & @CRLF)
+	FileClose($hfile)
+
+	Local $tRaw = DllStructCreate("byte [" & BinaryLen($filescont) & "]")
+	DllStructSetData($tRaw, 1, $filescont)
+	Local $tBootSectorSections = DllStructCreate("align 1;byte Jump[3];char SystemName[8];ushort;ubyte;ushort;ubyte[3];ushort;ubyte;ushort;ushort;ushort;" & _
+		"dword;dword;dword;int64;int64;int64;dword;dword;int64 NTFSerialNumber;dword Checksum", DllStructGetPtr($tRaw))
+	If Number(DllStructGetData($tBootSectorSections, "Checksum") ) = 0 Then
+		Return Hex(DllStructGetData($tBootSectorSections, "NTFSerialNumber") & @CRLF)
+	EndIf
+    Return SetError(1, 0, "")
+EndFunc  ;=>_GetUUIDfromDrv
+
+
+Func _HexEncode($bInput)
+    Local $tInput = DllStructCreate("byte[" & BinaryLen($bInput) & "]")
+    DllStructSetData($tInput, 1, $bInput)
+    Local $a_iCall = DllCall("crypt32.dll", "int", "CryptBinaryToString", _
+            "ptr", DllStructGetPtr($tInput), "dword", DllStructGetSize($tInput), "dword", 11, "ptr", 0, "dword*", 0)
+    If @error Or Not $a_iCall[0] Then Return SetError(1, 0, "")
+    Local $iSize = $a_iCall[5]
+    Local $tOut = DllStructCreate("char[" & $iSize & "]")
+
+    $a_iCall = DllCall("crypt32.dll", "int", "CryptBinaryToString", _
+            "ptr", DllStructGetPtr($tInput), "dword", DllStructGetSize($tInput), "dword", 11, "ptr", DllStructGetPtr($tOut), "dword*", $iSize)
+    If @error Or Not $a_iCall[0] Then Return SetError(2, 0, "")
+    Return SetError(0, 0, DllStructGetData($tOut, 1))
+EndFunc  ;=>_HexEncode
+
+
+Func GetACP() ; equal get chcp copepage
+        Local $aResult = DllCall("kernel32.dll", "int", "GetACP")
+        If @error Or Not $aResult[0] Then Return SetError(@error + 20, @extended, "")
+        Return $aResult[0]
+EndFunc   ;==>GetACP
+
+
+Func FileSearchInEnvPath($Program)
+	Local $sEnvVar = EnvGet("path")
+	Local $pathDirs = StringSplit($sEnvVar, ";")
+	Local $tFilePath = _WinAPI_PathFindFileName($Program)
+	For $i = 1 To $pathDirs[0]
+		$sFilePath = _WinAPI_PathAddBackslash(_WinAPI_PathSearchAndQualify(_WinAPI_PathUnquoteSpaces($pathDirs[$i]) ) ) & $tFilePath
+		If FileExists($sFilePath) Then
+;			MsgBox(4096, "",  $sFilePath)
+			Return SetError(0, 0, $sFilePath)
+		EndIf
+	Next
+	Return SetError(1, 0)
+EndFunc ; FileSearchInEnvPath
+
+
+Func RunProgram($Program, $Command)
+	Local $sFilePath = FileGetLongName($Program)
+  	If Not FileExists($sFilePath) Then $sFilePath = _WinAPI_PathFindOnPath($Program)
+	If Not FileExists($sFilePath) Then
+		ConsoleWrite("File not Found: " & $Program & @CRLF)
+		Return SetError(1, 0, "")
+	EndIf
+	Local $pid = Run($sFilePath & " " & $Command, "", @SW_HIDE, 2)
+	ProcessWaitClose($pid)
+	Local $sOutput = StdoutRead($pid)
+	If @error Then Return SetError(1, 0, "")
+	Return SetError(0, 0, $sOutput)
+EndFunc
+
+
+Func SearchFileWithAll(ByRef $initDir, $initPath, $initFile)
+	Local $findFile, $tFile
+	Local $sPath = _WinAPI_PathSearchAndQualify($initPath)
+    If StringIsSpace($initFile) Then Return SetError(1, 0, "")
+
+	Local $tRoot = StringStripWS($initDir, 3)
+	If Not StringIsSpace($tRoot) Then
+		$tFile = $tRoot & $sPath & $initFile
+		If FileExists($tFile) Then Return SetError(0, 0, $tFile)
+	EndIf
+
+	Local $ReturnVaules, $ndVolume = 0
+	Local $tVolume = _FindFirstVolume($ReturnVaules)
+	Local $Handle = $tVolume[0]
+
+	$tFile = $ReturnVaules & $sPath & $initFile
+	If FileExists($tFile) Then
+		$initDir = $ReturnVaules
+		_FindVolumeClose($Handle)
+		Return SetError(0, 0, $tFile)
+	EndIf
+
+	While 1
+		$ndVolume = _FindNextVolume($Handle, $ReturnVaules)
+		If @error or $ndVolume = 0 Then ExitLoop
+		$tFile = $ReturnVaules & $sPath & $initFile
+		If FileExists($tFile) Then
+			$initDir = $ReturnVaules
+			_FindVolumeClose($Handle)
+			Return SetError(0, 0, $tFile)
+		EndIf
+	WEnd
+	_FindVolumeClose($Handle)
+	Return SetError(1, 3)
+EndFunc ; SearchFileWithAll
+
+
+Func SearchBootDrv($sBootType)
+	Local $BootDevice , $tDrive = StringUpper($sBootType)
+	If StringInStr($tDrive, "BOOT") Then
+		Local $pattern = ""
+		$BootDevice = RegRead("HKLM\System\CurrentControlSet\Control", "FirmwareBootDevice")
+		If StringInStr($BootDevice, "multi") Then
+			$pattern = "multi\([[:digit:]]{1,2}\)disk\(0\)rdisk\(([[:digit:]]{1,2})\)partition\(([[:digit:]])\)"
+		Else
+			$pattern = "scsi\([[:digit:]]{1,2}\)disk\(([[:digit:]]{1,2})\)rdisk\(0\)partition\(([[:digit:]])\)"
+		EndIf
+
+		$aData = StringRegExp($BootDevice, $pattern, 1, 1)
+		If Not IsArray($aData) Then Return SetError(1)
+		Return SetError(0, 0, getVolumeFromNum($aData[0], $aData[1]) )
+	EndIf
+
+	If StringInStr($tDrive, "SYSTEM") Then
+		Local $isPE = RegRead("HKLM\SYSTEM\CurrentControlSet\Control", "PEFirmwareType")
+		If @error Then ; Not PE
+			$BootDevice = RegRead("HKLM\System\Setup", "SystemPartition")
+		else	; Is PE
+			$BootDevice = RegRead("HKLM\System\CurrentControlSet\Control", "PEBootRamdiskSourceDrive")
+		EndIf
+		Return SetError(0, 0, $BootDevice)
+	EndIf
+	Return SetError(1)
+EndFunc ; SearchBootDrv
+
+
+Func getVolumeFromNum($disk, $partition)
+	Local $ReturnVaules, $ndVolume = 0
+	Local $tVolume = _FindFirstVolume($ReturnVaules)
+	Local $Handle = $tVolume[0]
+	$aData = _DrvGetDriveNumber($ReturnVaules)
+	If IsArray($aData) Then
+		If ($disk = $aData[1]) And ($Partition = $aData[2]) Then
+			_FindVolumeClose($Handle)
+			Return SetError(0, 0, $ReturnVaules)
+		EndIf
+	EndIf
+
+	While 1
+		$ndVolume = _FindNextVolume($Handle, $ReturnVaules)
+		If @error or $ndVolume = 0 Then ExitLoop
+		$aData = _DrvGetDriveNumber($ReturnVaules)
+		If Not IsArray($aData) Then ContinueLoop
+		If ($disk = $aData[1]) And ($Partition = $aData[2]) Then
+			_FindVolumeClose($Handle)
+			Return SetError(0, 0, $ReturnVaules)
+		EndIf
+	WEnd
+	_FindVolumeClose($Handle)
+	Return SetError(1)
+EndFunc
+
+
+Func _GetVolumePathNamesForVolumeName($sVolumeName)
+	Local $tData, $pBuffer, $pSize, $Drive = ""
+	$tData = DllStructCreate("dword size;wchar buffer[256]")
+	$pBuffer = DllStructGetPtr($tData, "buffer")
+	$pSize = DllStructGetPtr($tData, "size")
+	$aCall = DllCall("kernel32.dll", "int", "GetVolumePathNamesForVolumeNameW", "wstr", $sVolumeName, "ptr", $pBuffer, "dword", 256, "ptr", $pSize)
+	$Drive = DllStructGetData($tData, "buffer")
+	If @error Then Return SetError(1)
+	If StringIsSpace(StringStripWS($Drive, 3)) Then Return SetError(1)
+	Return $Drive
+EndFunc
+
+
 Func _GetVolumePathName($lpszFileName)
 	Local $lpszVolumePathName = DllStructCreate("wchar[255]")
 	Local $ret = DllCall("Kernel32.dll", "int", "GetVolumePathNameW", "wstr", $lpszFileName, "Ptr", DllStructGetPtr($lpszVolumePathName), "dword", 255)
 	Return DllStructGetData($lpszVolumePathName, 1)
 EndFunc   ;=>_GetVolumePathName
+
+
+Func _QualifyRootFromPath(ByRef $initPath)
+	Local $sPath = _WinAPI_PathUnquoteSpaces( StringStripWS($initPath, 3) )
+	Local $Pattern0 = "(\\\\\?\\)?(Volume)?\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}(\\)?"
+	If StringRegExp($sPath, "^[[:alpha:]]\:") Then
+		Local $tPath = _WinAPI_PathSearchAndQualify($sPath)
+		$tPath = _WinAPI_PathCanonicalize($tPath)
+		$initPath = $tPath
+		Return SetError(0, 0, _WinAPI_GetVolumeNameForVolumeMountPoint(StringLeft($tPath, 2) & "\") )
+	ElseIf StringRegExp($sPath, $Pattern0) Then
+		Local $Pattern, $Pattern1, $Pattern2, $xpath
+;		$Pattern1 = "(\\\\\?\\)+(Volume)+\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}(\\)+"
+		$Pattern = "(?:\\\\\?\\)?(?:Volume)?(\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\})(?:\\)?(.*)"
+		Local $try = StringRegExp($sPath, $Pattern, 1)
+		Local $tguid = "", $tFile = ""
+		If IsArray($try) Then
+			$tguid = $try[0]
+			If UBound($try) >1 Then	$tFile = $try[1]
+		EndIf
+		$sPath = "\\?\Volume" & $tguid & "\" & $tFile
+		Local $Dosletter = _GetVolumePathNamesForVolumeName($sPath)
+		If @error Then
+			$initPath = "[Unassign]\" & $tFile
+		Else
+			$initPath = StringUpper(StringLeft($Dosletter, 2))& "\" & $tFile
+		EndIf
+
+		Return SetError(0, 0, $sPath & $tFile)
+	EndIf
+	Return SetError(1)
+EndFunc  ; 	_QualifyRootFromPath
 
 
 Func _DrvGetDriveNumber($sDrive)
@@ -360,6 +501,39 @@ Func _GetDrivePartitionStyle($sDrive)
 EndFunc   ;=>_GetDrivePartitionStyle
 
 
+Func FindLastDrv($Extra)
+	Local $lastL= ""
+	Local $BitMask = _WinAPI_GetLogicalDrives()
+	Local $iExtra = StringToASCIIArray($Extra)
+	For $Bits In $iExtra
+		$BitMask = BitOR($BitMask,2^($Bits - 65) )
+	Next
+
+	For $i = 2 To 25
+		If Not BitAND(2^$i, $BitMask) Then
+			$lastL = Chr($i + 65)
+			ExitLoop
+		EndIf
+	Next
+	Return SetError(0, 0, $lastL & ":")
+EndFunc
+
+
+Func _Drv2Device($sDrive)
+	Local $sPath = $sDrive
+	Local $tGuid = _QualifyRootFromPath($sPath) ; ByRef
+	If StringRegExp($sPath, "^[[:alpha:]]\:") Then Return _WinAPI_QueryDosDevice($sDrive)
+	If StringIsSpace($tGuid) Then Return SetError(1, 0 ,"")
+	Local $lastL = "B:"
+	If FileExists("B:") Then $lastL = FindLastDrv("CDEFGIXYZ")
+	_WinAPI_SetVolumeMountPoint($lastL & "\", $tGuid)
+	Local $tDrv = _WinAPI_QueryDosDevice($lastL)
+;	Local $aCall = DllCall('kernel32.dll', 'dword', 'QueryDosDeviceW', 'wstr', null, 'struct*', $lastL, 'dword', 32768)
+	_WinAPI_DeleteVolumeMountPoint($lastL & "\")
+	Return SetError(0, 0, ($tDrv = 1) ? ("UnAssign") : ($tDrv))
+EndFunc ; End =>_Drv2Device
+
+
 Func _WinAPI_GetFirmwareEnvironmentVariable()
     DllCall("kernel32.dll", "dword", _
             "GetFirmwareEnvironmentVariableW", "wstr", "", "wstr", "{00000000-0000-0000-0000-000000000000}", "wstr", "", "dword", 4096)
@@ -375,67 +549,35 @@ Func _WinAPI_GetFirmwareEnvironmentVariable()
 EndFunc   ;=>_WinAPI_GetFirmwareEnvironmentVariable
 
 
-Func _GetDrvFromUUID($uuid)
+Func _GetGuidFromDevice($Device)  ; "\Device\HarddiskVolume12"
+	Local $pattern0 = "(?i)(^\\Device\\.+?)(?=\\)"
+	Local $pattern1 = "\\Device\\HarddiskVolume([[:digit:]]{1,2})"
+	Local $pattern2 = "\\Device\\HarddiskVolume[[:digit:]]{1,2}"
+	If Not StringRegExp($Device, $pattern2) Then Return SetError(1, 0, "")
+
+	Local $tDrv, $lastL = "B:"
+	If FileExists("B:") Then $lastL = FindLastDrv("CDEFGIXYZ")
 	Local $ReturnVaules, $ndVolume = 0
+
 	Local $tVolume = _FindFirstVolume($ReturnVaules)
-	If Not @error Then
-		If $uuid = _GetUUIDfromDrv($ReturnVaules) Then
-			_FindVolumeClose($tVolume[0])
-			 Return $ReturnVaules
-		EndIf
+	Local $Handle = $tVolume[0]
+	If @error Then Return SetError(1, 0, "")
+	_WinAPI_SetVolumeMountPoint($lastL & "\", $ReturnVaules)
+	If Not @error Then $tDrv = _WinAPI_QueryDosDevice($lastL)
+	_WinAPI_DeleteVolumeMountPoint($lastL & "\")
+	If StringInStr($tDrv, $Device) Then
+		_FindVolumeClose($Handle)
+		 Return $ReturnVaules
 	EndIf
 
-	Local $Handle = $tVolume[0]
 	While 1
 		$ndVolume = _FindNextVolume($Handle, $ReturnVaules)
-		If $ndVolume = 0 Then ExitLoop
-		If Not @error Then
-			If $uuid = _GetUUIDfromDrv($ReturnVaules) Then ExitLoop
-		EndIf
+		If @error or $ndVolume = 0 Then ExitLoop
+		_WinAPI_SetVolumeMountPoint($lastL & "\", $ReturnVaules)
+		If Not @error Then $tDrv = _WinAPI_QueryDosDevice($lastL)
+		_WinAPI_DeleteVolumeMountPoint($lastL & "\")
+		If StringInStr($tDrv, $Device) Then ExitLoop
 	WEnd
 	_FindVolumeClose($Handle)
-	 Return $ReturnVaules
+	 Return SetError(0, 0, $ReturnVaules)
 EndFunc ; End =>_GetDrvFromUUID
-
-
-Func _GetUUIDfromDrv($tDrive)
-	Local $hfile, $nfile
-	Local $sDrive = StringRegExpReplace($tDrive, "(\\+)$", "", 1)
-	If 	StringRegExp($sDrive, "\\\\\?\\Volume\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}") Then
-		$nfile = $sDrive
-	ElseIf StringRegExp(StringUpper($sDrive), "[C-Z]\:$") Then
-		$nfile = "\\.\" & $sDrive
-	Else
-		Return SetError(1)
-	EndIf
-	If StringInStr(DriveGetFileSystem($nfile & "\"), "FAT") Then Return Hex(DriveGetSerial($nfile & "\") & @CRLF)
-	$hfile = FileOpen($nfile, 16)
-	Local $filescont = FileRead($hfile, 84); 84 bytes is enough
-;	 ConsoleWrite(_HexEncode($filescont) & @CRLF)
-	FileClose($hfile)
-
-	Local $tRaw = DllStructCreate("byte [" & BinaryLen($filescont) & "]")
-	DllStructSetData($tRaw, 1, $filescont)
-	Local $tBootSectorSections = DllStructCreate("align 1;byte Jump[3];char SystemName[8];ushort;ubyte;ushort;ubyte[3];ushort;ubyte;ushort;ushort;ushort;" & _
-		"dword;dword;dword;int64;int64;int64;dword;dword;int64 NTFSerialNumber;dword Checksum", DllStructGetPtr($tRaw))
-	If Number(DllStructGetData($tBootSectorSections, "Checksum") ) = 0 Then
-		Return Hex(DllStructGetData($tBootSectorSections, "NTFSerialNumber") & @CRLF)
-	EndIf
-    Return SetError(1)
-EndFunc  ;=>_GetUUIDfromDrv
-
-
-Func _HexEncode($bInput)
-    Local $tInput = DllStructCreate("byte[" & BinaryLen($bInput) & "]")
-    DllStructSetData($tInput, 1, $bInput)
-    Local $a_iCall = DllCall("crypt32.dll", "int", "CryptBinaryToString", _
-            "ptr", DllStructGetPtr($tInput), "dword", DllStructGetSize($tInput), "dword", 11, "ptr", 0, "dword*", 0)
-    If @error Or Not $a_iCall[0] Then Return SetError(1, 0, "")
-    Local $iSize = $a_iCall[5]
-    Local $tOut = DllStructCreate("char[" & $iSize & "]")
-
-    $a_iCall = DllCall("crypt32.dll", "int", "CryptBinaryToString", _
-            "ptr", DllStructGetPtr($tInput), "dword", DllStructGetSize($tInput), "dword", 11, "ptr", DllStructGetPtr($tOut), "dword*", $iSize)
-    If @error Or Not $a_iCall[0] Then Return SetError(2, 0, "")
-    Return SetError(0, 0, DllStructGetData($tOut, 1))
-EndFunc  ;=>_HexEncode
