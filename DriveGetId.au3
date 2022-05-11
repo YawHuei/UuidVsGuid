@@ -30,7 +30,6 @@ Switch StringUpper($CmdLine[1])
 
   Case "DRV2GUID"
   	ConsoleWrite(StringUpper(_WinAPI_GetVolumeNameForVolumeMountPoint($sDrive & "\")))
-;	ConsoleWrite(RunProgram("grub-probe.exe", "--target=device " & $sDrive))
 
   Case "NUM2GUID"
 		Local $nums, $Disk, $Partition, $tDrive = StringUpper($sDrive)
@@ -108,7 +107,8 @@ Switch StringUpper($CmdLine[1])
 	Local $Handle = $tVolume[0]
 	If _GetUUIDfromDrv($ReturnVaules) = $tDrive Then
 		_FindVolumeClose($Handle)
-		ConsoleWrite($ReturnVaules)
+		ConsoleWrite(StringTrimRight($ReturnVaules, 1) )
+		Exit(0)
 	EndIf
 
 	While 1
@@ -118,16 +118,16 @@ Switch StringUpper($CmdLine[1])
 	WEnd
 
 	_FindVolumeClose($Handle)
-	ConsoleWrite($ReturnVaules)
+	ConsoleWrite(StringTrimRight($ReturnVaules, 1) )
 
   Case "UUID2NUM"
-		Local $uuid = StringStripWS($sDrive, 3)
-		Local $VolumeId = _GetDrvFromUUID($uuid)
-		Local $Style = _GetDrivePartitionStyle($VolumeId)
-		Local $aData = _DrvGetDriveNumber($VolumeId)
-		Local $disk = $aData[1]
-		Local $Partition = $aData[2]
-		ConsoleWrite((StringInStr($Style,"MBR")) ? ("hd" & $disk & ",msdos" & $Partition) : ("hd" & $disk & ",gpt" & $Partition) )
+	Local $uuid = StringStripWS($sDrive, 3)
+	Local $VolumeId = _GetDrvFromUUID($uuid)
+	Local $Style = _GetDrivePartitionStyle($VolumeId)
+	Local $aData = _DrvGetDriveNumber($VolumeId)
+	Local $disk = $aData[1]
+	Local $Partition = $aData[2]
+	ConsoleWrite((StringInStr($Style,"MBR")) ? ("hd" & $disk & ",msdos" & $Partition) : ("hd" & $disk & ",gpt" & $Partition) )
 
   Case "GETVOLUMES"
 	getAllVolumes($sDrive)
@@ -244,7 +244,6 @@ Func _GetUUIDfromDrv($tDrive)
 	If StringInStr(DriveGetFileSystem($nfile & "\"), "FAT") Then Return Hex(DriveGetSerial($nfile & "\") & @CRLF)
 	$hfile = FileOpen($nfile, 16)
 	Local $filescont = FileRead($hfile, 84); 84 bytes is enough
-;	 ConsoleWrite(_HexEncode($filescont) & @CRLF)
 	FileClose($hfile)
 
 	Local $tRaw = DllStructCreate("byte [" & BinaryLen($filescont) & "]")
@@ -256,59 +255,6 @@ Func _GetUUIDfromDrv($tDrive)
 	EndIf
     Return SetError(1, 0, "")
 EndFunc  ;=>_GetUUIDfromDrv
-
-
-Func _HexEncode($bInput)
-    Local $tInput = DllStructCreate("byte[" & BinaryLen($bInput) & "]")
-    DllStructSetData($tInput, 1, $bInput)
-    Local $a_iCall = DllCall("crypt32.dll", "int", "CryptBinaryToString", _
-            "ptr", DllStructGetPtr($tInput), "dword", DllStructGetSize($tInput), "dword", 11, "ptr", 0, "dword*", 0)
-    If @error Or Not $a_iCall[0] Then Return SetError(1, 0, "")
-    Local $iSize = $a_iCall[5]
-    Local $tOut = DllStructCreate("char[" & $iSize & "]")
-
-    $a_iCall = DllCall("crypt32.dll", "int", "CryptBinaryToString", _
-            "ptr", DllStructGetPtr($tInput), "dword", DllStructGetSize($tInput), "dword", 11, "ptr", DllStructGetPtr($tOut), "dword*", $iSize)
-    If @error Or Not $a_iCall[0] Then Return SetError(2, 0, "")
-    Return SetError(0, 0, DllStructGetData($tOut, 1))
-EndFunc  ;=>_HexEncode
-
-
-Func GetACP() ; equal get chcp copepage
-        Local $aResult = DllCall("kernel32.dll", "int", "GetACP")
-        If @error Or Not $aResult[0] Then Return SetError(@error + 20, @extended, "")
-        Return $aResult[0]
-EndFunc   ;==>GetACP
-
-
-Func FileSearchInEnvPath($Program)
-	Local $sEnvVar = EnvGet("path")
-	Local $pathDirs = StringSplit($sEnvVar, ";")
-	Local $tFilePath = _WinAPI_PathFindFileName($Program)
-	For $i = 1 To $pathDirs[0]
-		$sFilePath = _WinAPI_PathAddBackslash(_WinAPI_PathSearchAndQualify(_WinAPI_PathUnquoteSpaces($pathDirs[$i]) ) ) & $tFilePath
-		If FileExists($sFilePath) Then
-;			MsgBox(4096, "",  $sFilePath)
-			Return SetError(0, 0, $sFilePath)
-		EndIf
-	Next
-	Return SetError(1, 0)
-EndFunc ; FileSearchInEnvPath
-
-
-Func RunProgram($Program, $Command)
-	Local $sFilePath = FileGetLongName($Program)
-  	If Not FileExists($sFilePath) Then $sFilePath = _WinAPI_PathFindOnPath($Program)
-	If Not FileExists($sFilePath) Then
-		ConsoleWrite("File not Found: " & $Program & @CRLF)
-		Return SetError(1, 0, "")
-	EndIf
-	Local $pid = Run($sFilePath & " " & $Command, "", @SW_HIDE, 2)
-	ProcessWaitClose($pid)
-	Local $sOutput = StdoutRead($pid)
-	If @error Then Return SetError(1, 0, "")
-	Return SetError(0, 0, $sOutput)
-EndFunc
 
 
 Func SearchFileWithAll(ByRef $initDir, $initPath, $initFile)
