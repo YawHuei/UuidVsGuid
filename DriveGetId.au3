@@ -1,4 +1,3 @@
-#NoTrayIcon
 #include-once
 #include <WinAPIFiles.au3>
 #include <WinAPIShPath.au3>
@@ -283,7 +282,6 @@ Func _HexEncode($bInput)
 EndFunc  ;=>_HexEncode
 
 
-
 Func GetACP() ; equal get chcp copepage
         Local $aResult = DllCall("kernel32.dll", "int", "GetACP")
         If @error Or Not $aResult[0] Then Return SetError(@error + 20, @extended, "")
@@ -435,16 +433,14 @@ Func _GetVolumePathName($lpszFileName)
 EndFunc   ;=>_GetVolumePathName
 
 
-Func _QualifyFromPath(ByRef $initPath)	; ByRef $initPath "\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\" , Return "D:\" or "1" when unassign
+; ByRef $initPath "\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\" , Return "D:\" or "1" when unassign
+; "\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\" =	"\\?\D:\" ,  Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx} = D:
+Func _QualifyFromPath(ByRef $initPath, $getDosDevice = False)
 	Local $sPath = _WinAPI_PathUnquoteSpaces( StringStripWS($initPath, 3) )
 	Local $Pattern0 = "(\\\\\?\\)?(Volume)?\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}(\\)?"
-	If StringRegExp($sPath, "^[[:alpha:]]\:") Then
-		Local $tPath = _WinAPI_PathSearchAndQualify($sPath)
-		$tPath = _WinAPI_PathCanonicalize($tPath)
-		$initPath = StringUpper(StringLeft($tPath, 2))
-		Return SetError(0, 0, _WinAPI_GetVolumeNameForVolumeMountPoint(StringLeft($tPath, 2) & "\") )
-	ElseIf StringRegExp($sPath, $Pattern0) Then
-		Local $Pattern, $Pattern1, $Pattern2, $xpath
+
+	If StringRegExp($sPath, $Pattern0) Then
+		Local $Pattern, $Pattern1, $Pattern2, $Dosletter
 ;		$Pattern = "(\\\\\?\\)+(Volume)+\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\}(\\)+"
 		$Pattern = "(?:\\\\\?\\)?(?:Volume)?(\{[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}\})(?:\\)?(.*)"
 		Local $try = StringRegExp($sPath, $Pattern, 1)
@@ -454,10 +450,23 @@ Func _QualifyFromPath(ByRef $initPath)	; ByRef $initPath "\\?\Volume{xxxxxxxx-xx
 			If UBound($try) >1 Then	$tFile = $try[1]
 		EndIf
 		$initPath = "\\?\Volume" & $tguid & "\"
-		Local $Dosletter = _GetVolumePathNamesForVolumeName($initPath)	;  "\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\"
+
+		If $getDosDevice Then Return SetError(0, 0, "Volume" & $tguid)
+
+		$Dosletter = _GetVolumePathNamesForVolumeName($initPath)	;  "\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\"
 		If Not @error Then
  			$Dosletter = StringUpper(StringLeft($Dosletter, 2)) & "\"
 			Return SetError(0, 0, $Dosletter)
+		EndIf
+	ElseIf StringRegExp($sPath, "^[[:alpha:]]\:") Then
+		Local $tPath = _WinAPI_PathSearchAndQualify($sPath)
+		$tPath = _WinAPI_PathCanonicalize($tPath)
+		$initPath = $tPath
+		Local $xpath = StringUpper(StringLeft($tPath, 2))
+		If $getDosDevice Then
+			Return SetError(0, 0, $xpath )
+		Else
+			Return SetError(0, 0, _WinAPI_GetVolumeNameForVolumeMountPoint($xpath & "\") )
 		EndIf
 	EndIf
 	Return SetError(1)
@@ -542,17 +551,10 @@ EndFunc
 
 
 Func _Drv2Device($sDrive)
-	Local $tDrv = ""
 	If StringIsSpace($sDrive) Then Return SetError(1, 0 ,"")
 	Local $initPath = $sDrive
-	Local $DosLetter = _QualifyFromPath($initPath)	; ByRef $initPath "\\?\Volume{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\" , Return "D:\" or "1" when unassign
-	If StringRegExp($DosLetter, "^[[:alpha:]]\:") Then Return _QueryDosDevice($DosLetter)
-
-	Local $lastL = "B:"
-	If FileExists("B:") Then $lastL = FindLastDrv("CDEFGIXYZ")
-	_WinAPI_SetVolumeMountPoint($lastL & "\", $initPath)
-	$tDrv = _QueryDosDevice($lastL)
-	_WinAPI_DeleteVolumeMountPoint($lastL & "\")
+	Local $DeviceName = _QualifyFromPath($initPath, True)
+	Local $tDrv = _QueryDosDevice($DeviceName)
 	If StringLen($tDrv) < 5 Then $tDrv = "Null"
 	Return SetError(0, 0, $tDrv)
 EndFunc ; End =>_Drv2Device
@@ -623,4 +625,6 @@ Func _GetPhysicallyInstalledSystemMemory()
 	If @error Then Return SetError(1, 0, 0)
 	Return $aRet[1]
 EndFunc   ;==>  _GetPhysicallyInstalledSystemMemory
+
+
 
