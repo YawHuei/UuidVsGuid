@@ -22,8 +22,9 @@ In diskpart.exe
 create vdisk file="\\?\Volume{398717dc-0000-0000-0000-501f00000000}\path\filed.vhdx" parent=""\\?\Volume{398717dc-0000-0000-0000-501f00000000}\path\filem.vhdx"
 
 if exist "\\?\Volume{398717dc-0000-0000-0000-501f00000000}\path\file.ext" echo do some jobs
-copy "\\?\Volume{398717dc-0000-0000-0000-501f00000000}\path\file.ext" .
-Can use with {copy, move, ...}, But bcdedit or others will generate error. (OS will redefine Locate)
+copy "\\?\Volume{398717dc-0000-0000-0000-501f00000000}\path\file.ext"  .
+Can use with {copy, move, ...}, But bcdedit or others will generate error. (OS will redefine Locate).
+Can use bcdedit.exe /store %mybcd% /set {%guid%} device vhd=[\Device\HarddiskVolume5]\win8.vhdx  
 
 
 DrivegetId Command line:
